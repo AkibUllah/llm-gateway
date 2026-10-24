@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check src tests scripts
+      - name: Format check
+        run: ruff format --check src tests scripts
+      - name: Test
+        run: pytest
+      - name: OpenAPI export
+        run: python scripts/export_openapi.py /tmp/openapi.json
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: gateway
+          POSTGRES_PASSWORD: gateway
+          POSTGRES_DB: gateway
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U gateway -d gateway"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://gateway:gateway@localhost:5432/gateway
+      REDIS_URL: redis://localhost:6379/0
+      ADMIN_API_KEY: ci-admin
+      DEMO_API_KEY: sk-gw-ci-demo-key-000000000001
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run the gateway against PostgreSQL and Redis
+        run: |
+          llm-gateway serve --port 8080 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/health && break; sleep 1; done
+          python scripts/demo_traffic.py --url http://127.0.0.1:8080 --key "$DEMO_API_KEY" --admin-key "$ADMIN_API_KEY" --requests 40
+          curl -fsS "http://127.0.0.1:8080/admin/usage?group_by=day" -H "Authorization: Bearer $ADMIN_API_KEY"
+          curl -fsS http://127.0.0.1:8080/metrics | grep llmgw_requests_total
