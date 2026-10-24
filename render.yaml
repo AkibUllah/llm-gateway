@@ -1,0 +1,48 @@
+# Render blueprint: the gateway, a free PostgreSQL for keys/usage and a free Key Value store
+# for the shared cache and rate-limit counters. Add OPENAI_API_KEY / ANTHROPIC_API_KEY in the
+# dashboard to route to real models; without them the demo-* aliases use the fake providers.
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: llm-gateway
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: DATABASE_URL           # postgres://... is normalised to postgresql+asyncpg://
+        fromDatabase:
+          name: llm-gateway-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: llm-gateway-redis
+          property: connectionString
+      - key: ADMIN_API_KEY
+        generateValue: true
+      - key: DEMO_API_KEY           # a ready-made virtual key with a $5 budget; copy it from the dashboard
+        generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+  - type: keyvalue
+    name: llm-gateway-redis
+    plan: free
+    ipAllowList: []
+
+databases:
+  - name: llm-gateway-db
+    plan: free
+    databaseName: gateway
+    user: gateway
