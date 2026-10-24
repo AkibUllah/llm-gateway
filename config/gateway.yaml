@@ -1,0 +1,88 @@
+# Providers are upstream accounts; models are the aliases clients send in "model".
+# A provider whose api_key_env / base_url_env is not set is skipped at startup, and requests
+# for its aliases go straight to the fallbacks, so this file works offline out of the box.
+
+providers:
+  fake-primary:
+    type: fake
+    latency_ms: 120
+    stream_chunk_delay_ms: 25
+    replies:
+      "(?i)bkash": "bKash settlements arrive T+1; check the merchant portal for the batch file."
+      "(?i)^ping$": "pong"
+  fake-flaky:            # fails one call in three with 503 to exercise retries and the breaker
+    type: fake
+    latency_ms: 80
+    failure_rate: 0.33
+    failure_status: 503
+    seed: 7
+  fake-backup:
+    type: fake
+    latency_ms: 250
+
+  openai:
+    type: openai
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    timeout_s: 60
+  anthropic:
+    type: anthropic
+    base_url: https://api.anthropic.com
+    api_key_env: ANTHROPIC_API_KEY
+    default_max_tokens: 1024
+    timeout_s: 60
+  ollama:
+    type: ollama
+    base_url_env: OLLAMA_BASE_URL   # e.g. http://localhost:11434
+    timeout_s: 120
+
+models:
+  demo-chat:
+    description: Offline demo; 3:1 weighted across a healthy and a flaky fake upstream.
+    targets:
+      - { provider: fake-primary, model: fake-large, weight: 3 }
+      - { provider: fake-flaky, model: fake-large, weight: 1 }
+    fallbacks: [demo-backup]
+  demo-backup:
+    targets:
+      - { provider: fake-backup, model: fake-small }
+  demo-embed:
+    targets:
+      - { provider: fake-primary, model: fake-embed }
+
+  gpt-4o-mini:
+    targets:
+      - { provider: openai, model: gpt-4o-mini }
+    fallbacks: [claude-haiku, demo-chat]
+  claude-haiku:
+    targets:
+      - { provider: anthropic, model: claude-haiku-4-5 }
+    fallbacks: [gpt-4o-mini, demo-chat]
+  claude-sonnet:
+    targets:
+      - { provider: anthropic, model: claude-sonnet-4-5 }
+    fallbacks: [claude-haiku]
+  llama3.2:
+    targets:
+      - { provider: ollama, model: "llama3.2" }
+    fallbacks: [demo-chat]
+  text-embedding-3-small:
+    targets:
+      - { provider: openai, model: text-embedding-3-small }
+    fallbacks: [demo-embed]
+
+routing:
+  max_retries: 2          # per deployment, for 429 / 5xx / timeouts
+  backoff_base_ms: 100    # 100 ms, 200 ms, 400 ms ... with jitter; Retry-After wins when smaller
+  backoff_max_ms: 2000
+  request_timeout_s: 60
+  breaker:
+    failure_threshold: 5  # consecutive failures before a provider is skipped
+    recovery_s: 30        # then one probe request is let through
+
+cache:
+  enabled: true
+  ttl_s: 3600
+  max_entries: 5000
+  only_deterministic: true   # cache only temperature=0 requests
+  case_insensitive: false
