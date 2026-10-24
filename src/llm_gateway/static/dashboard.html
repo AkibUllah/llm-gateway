@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LLM Gateway - Usage</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root { --bg: #f6f7f9; --panel: #fff; --ink: #1d2433; --muted: #5b6475; --line: #e3e6eb; --accent: #2457c5; --bad: #c0392b; --ok: #1e8e4e; --warn: #b7791f; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #111418; --panel: #1a1f26; --ink: #e6e9ef; --muted: #9aa3b2; --line: #2a313b; --accent: #6b9bff; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+    header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+    header h1 { font-size: 1.1rem; margin: 0; }
+    header .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    input, select, button, textarea { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; }
+    button { background: var(--accent); color: #fff; border-color: var(--accent); cursor: pointer; }
+    main { max-width: 1280px; margin: 0 auto; padding: 18px 16px 40px; display: grid; gap: 16px; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+    .kpi, .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+    .kpi .label { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+    .kpi .value { font-size: 1.5rem; font-weight: 650; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; }
+    @media (max-width: 520px) { .grid2 { grid-template-columns: 1fr; } }
+    h2 { font-size: .95rem; margin: 0 0 10px; }
+    table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    th { color: var(--muted); font-weight: 600; font-size: .8rem; }
+    .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; min-width: 80px; }
+    .bar > span { display: block; height: 100%; background: var(--accent); }
+    .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: .78rem; border: 1px solid currentColor; }
+    .closed, .yes { color: var(--ok); } .open, .no { color: var(--bad); } .half_open { color: var(--warn); }
+    .muted { color: var(--muted); }
+    #error { display: none; color: var(--bad); }
+    pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-size: .85rem; }
+    .try { display: grid; gap: 8px; }
+    .try .row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .try textarea { width: 100%; min-height: 60px; }
+    .table-wrap { overflow-x: auto; }
+    td code { white-space: nowrap; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>LLM Gateway</h1>
+  <div class="controls">
+    <input id="adminKey" type="password" placeholder="ADMIN_API_KEY" autocomplete="off" aria-label="Admin key">
+    <select id="days" aria-label="Period">
+      <option value="1">Last 24 h</option>
+      <option value="7" selected>Last 7 days</option>
+      <option value="30">Last 30 days</option>
+    </select>
+    <button id="load">Load</button>
+  </div>
+</header>
+<main>
+  <p id="error"></p>
+  <section class="kpis" aria-label="Totals">
+    <div class="kpi"><div class="label">Requests</div><div class="value" id="kRequests">-</div></div>
+    <div class="kpi"><div class="label">Spend (USD)</div><div class="value" id="kCost">-</div></div>
+    <div class="kpi"><div class="label">Tokens</div><div class="value" id="kTokens">-</div></div>
+    <div class="kpi"><div class="label">Cache hit rate</div><div class="value" id="kCache">-</div></div>
+    <div class="kpi"><div class="label">Error rate</div><div class="value" id="kErrors">-</div></div>
+    <div class="kpi"><div class="label">Avg latency</div><div class="value" id="kLatency">-</div></div>
+  </section>
+
+  <section class="grid2">
+    <div class="card"><h2>Spend and requests per day</h2><canvas id="daily" height="220"></canvas></div>
+    <div class="card"><h2>Requests by model alias</h2><canvas id="models" height="220"></canvas></div>
+  </section>
+
+  <section class="grid2">
+    <div class="card">
+      <h2>Virtual keys</h2>
+      <div class="table-wrap"><table id="keys"><thead><tr><th>Name</th><th>Prefix</th><th>Spend / budget</th><th></th><th>Limits</th><th>Active</th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="card">
+      <h2>Providers</h2>
+      <div class="table-wrap"><table id="providers"><thead><tr><th>Name</th><th>Type</th><th>State</th><th>OK / failed</th><th>Note</th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="grid2">
+    <div class="card try">
+      <h2>Send a request</h2>
+      <div class="row">
+        <input id="apiKey" type="password" placeholder="Virtual key (sk-gw-...)" autocomplete="off" aria-label="Virtual key">
+        <select id="model" aria-label="Model"></select>
+        <label class="muted"><input type="checkbox" id="temp0" checked> temperature 0 (cacheable)</label>
+      </div>
+      <textarea id="prompt" aria-label="Prompt">How long does a bKash settlement take?</textarea>
+      <div class="row"><button id="send">Send</button><span class="muted" id="sendMeta"></span></div>
+      <pre id="reply" class="muted"></pre>
+    </div>
+    <div class="card">
+      <h2>Budget alerts</h2>
+      <div class="table-wrap"><table id="alerts"><thead><tr><th>When</th><th>Key</th><th>Threshold</th><th>Spent</th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+</main>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const store = { get: (k) => { try { return sessionStorage.getItem(k) || ""; } catch (e) { return ""; } },
+                  set: (k, v) => { try { sessionStorage.setItem(k, v); } catch (e) {} } };
+  const fmt = new Intl.NumberFormat("en-US");
+  const usd = (v) => "$" + (v || 0).toFixed(v >= 1 ? 2 : 4);
+  const charts = {};
+  let keyNames = {};
+
+  $("adminKey").value = store.get("llmgw.admin");
+  $("apiKey").value = store.get("llmgw.key");
+
+  async function admin(path) {
+    const res = await fetch(path, { headers: { "Authorization": "Bearer " + $("adminKey").value } });
+    if (!res.ok) { throw new Error(path + ": " + res.status + " " + (await res.text())); }
+    return res.json();
+  }
+
+  function chart(id, config) {
+    if (charts[id]) { charts[id].destroy(); }
+    charts[id] = new Chart($(id), config);
+  }
+
+  function cell(tr, html) { const td = document.createElement("td"); td.innerHTML = html; tr.appendChild(td); }
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+  async function load() {
+    store.set("llmgw.admin", $("adminKey").value);
+    $("error").style.display = "none";
+    const since = new Date(Date.now() - Number($("days").value) * 86400000).toISOString();
+    try {
+      const [byDay, byModel, keys, providers, alerts] = await Promise.all([
+        admin("/admin/usage?group_by=day&since=" + encodeURIComponent(since)),
+        admin("/admin/usage?group_by=model&since=" + encodeURIComponent(since)),
+        admin("/admin/keys"), admin("/admin/providers"), admin("/admin/alerts"),
+      ]);
+      const t = byDay.totals;
+      $("kRequests").textContent = fmt.format(t.requests);
+      $("kCost").textContent = usd(t.cost_usd);
+      $("kTokens").textContent = fmt.format(t.prompt_tokens + t.completion_tokens);
+      $("kCache").textContent = t.requests ? Math.round(100 * t.cache_hits / t.requests) + "%" : "-";
+      $("kErrors").textContent = t.requests ? (100 * t.errors / t.requests).toFixed(1) + "%" : "-";
+      $("kLatency").textContent = t.requests ? Math.round(t.avg_latency_ms) + " ms" : "-";
+
+      chart("daily", { type: "bar", data: { labels: byDay.rows.map((r) => r.group), datasets: [
+        { label: "Spend (USD)", data: byDay.rows.map((r) => r.cost_usd), yAxisID: "y", backgroundColor: "#2457c5" },
+        { label: "Requests", data: byDay.rows.map((r) => r.requests), type: "line", yAxisID: "y1", borderColor: "#e08a1e", backgroundColor: "#e08a1e", tension: 0.25 } ] },
+        options: { responsive: true, interaction: { mode: "index", intersect: false },
+          scales: { y: { beginAtZero: true, position: "left" }, y1: { beginAtZero: true, position: "right", grid: { drawOnChartArea: false } } } } });
+      chart("models", { type: "bar", data: { labels: byModel.rows.map((r) => r.group), datasets: [
+        { label: "Requests", data: byModel.rows.map((r) => r.requests), backgroundColor: "#2457c5" },
+        { label: "Cache hits", data: byModel.rows.map((r) => r.cache_hits), backgroundColor: "#1e8e4e" },
+        { label: "Errors", data: byModel.rows.map((r) => r.errors), backgroundColor: "#c0392b" } ] },
+        options: { responsive: true, indexAxis: "y", scales: { x: { beginAtZero: true } } } });
+
+      keyNames = {};
+      const kb = $("keys").querySelector("tbody"); kb.innerHTML = "";
+      keys.forEach((k) => {
+        keyNames[k.id] = k.name;
+        const tr = document.createElement("tr");
+        const pct = k.budget_usd ? Math.min(100, 100 * k.spent_usd / k.budget_usd) : 0;
+        cell(tr, esc(k.name)); cell(tr, "<code>" + esc(k.key_prefix) + "...</code>");
+        cell(tr, usd(k.spent_usd) + (k.budget_usd != null ? " / " + usd(k.budget_usd) + " <span class='muted'>(" + k.budget_period + ")</span>" : " <span class='muted'>no budget</span>"));
+        cell(tr, k.budget_usd ? "<div class='bar'><span style='width:" + pct.toFixed(1) + "%'></span></div>" : "");
+        cell(tr, [k.rpm_limit ? k.rpm_limit + " rpm" : "", k.tpm_limit ? fmt.format(k.tpm_limit) + " tpm" : ""].filter(Boolean).join(", ") || "<span class='muted'>none</span>");
+        cell(tr, "<span class='pill " + (k.active ? "yes'>active" : "no'>revoked") + "</span>");
+        kb.appendChild(tr);
+      });
+
+      const pb = $("providers").querySelector("tbody"); pb.innerHTML = "";
+      providers.forEach((p) => {
+        const tr = document.createElement("tr");
+        cell(tr, esc(p.name)); cell(tr, esc(p.type));
+        cell(tr, p.available ? "<span class='pill " + p.state + "'>" + p.state.replace("_", "-") + "</span>" : "<span class='pill muted'>disabled</span>");
+        cell(tr, p.available ? fmt.format(p.total_successes) + " / " + fmt.format(p.total_failures) : "-");
+        cell(tr, "<span class='muted'>" + esc(p.available ? (p.last_error || "") : p.reason) + "</span>");
+        pb.appendChild(tr);
+      });
+
+      const ab = $("alerts").querySelector("tbody"); ab.innerHTML = "";
+      if (!alerts.length) { const tr = document.createElement("tr"); cell(tr, "<span class='muted'>No alerts</span>"); ab.appendChild(tr); }
+      alerts.forEach((a) => {
+        const tr = document.createElement("tr");
+        cell(tr, esc(new Date(a.created_at).toLocaleString())); cell(tr, esc(keyNames[a.key_id] || a.key_id));
+        cell(tr, Math.round(a.threshold * 100) + "%"); cell(tr, usd(a.spent_usd) + " / " + usd(a.budget_usd));
+        ab.appendChild(tr);
+      });
+    } catch (err) {
+      $("error").textContent = err.message; $("error").style.display = "block";
+    }
+  }
+
+  async function loadModels() {
+    const key = $("apiKey").value;
+    if (!key) { return; }
+    const res = await fetch("/v1/models", { headers: { "Authorization": "Bearer " + key } });
+    if (!res.ok) { return; }
+    const body = await res.json();
+    $("model").innerHTML = body.data.map((m) => "<option>" + esc(m.id) + "</option>").join("");
+  }
+
+  async function send() {
+    store.set("llmgw.key", $("apiKey").value);
+    $("reply").textContent = "..."; $("sendMeta").textContent = "";
+    const started = performance.now();
+    const res = await fetch("/v1/chat/completions", { method: "POST",
+      headers: { "Authorization": "Bearer " + $("apiKey").value, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: $("model").value || "demo-chat", temperature: $("temp0").checked ? 0 : 0.7,
+        messages: [{ role: "user", content: $("prompt").value }] }) });
+    const body = await res.json();
+    const h = (n) => res.headers.get(n) || "-";
+    $("sendMeta").textContent = res.status + " · " + Math.round(performance.now() - started) + " ms · provider " + h("x-gateway-provider") +
+      " · cache " + h("x-gateway-cache") + " · attempts " + h("x-gateway-attempts") + " · $" + h("x-gateway-cost-usd");
+    $("reply").textContent = body.error ? JSON.stringify(body.error, null, 2) : body.choices[0].message.content;
+    load();
+  }
+
+  $("load").addEventListener("click", () => { load(); loadModels(); });
+  $("send").addEventListener("click", send);
+  $("apiKey").addEventListener("change", () => { store.set("llmgw.key", $("apiKey").value); loadModels(); });
+  if ($("adminKey").value) { load(); }
+  loadModels();
+  setInterval(() => { if ($("adminKey").value) { load(); } }, 15000);
+})();
+</script>
+</body>
+</html>
