@@ -1,0 +1,14 @@
+# USD per 1M tokens, keyed by the provider's model name (globs allowed).
+# Example list prices; check the providers' pricing pages before relying on them for billing.
+gpt-4o-mini: { input: 0.15, output: 0.60 }
+gpt-4.1-mini: { input: 0.40, output: 1.60 }
+gpt-4.1: { input: 2.00, output: 8.00 }
+text-embedding-3-small: { input: 0.02 }
+text-embedding-3-large: { input: 0.13 }
+claude-haiku-4-5*: { input: 1.00, output: 5.00 }
+claude-sonnet-4-5*: { input: 3.00, output: 15.00 }
+"llama*": { input: 0, output: 0 }        # self-hosted via Ollama
+# Fake models carry a price so the demo shows real-looking spend and budget alerts.
+fake-large: { input: 0.50, output: 1.50 }
+fake-small: { input: 0.10, output: 0.40 }
+fake-embed: { input: 0.02 }
