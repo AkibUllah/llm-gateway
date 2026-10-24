@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-gateway"
+version = "0.1.0"
+description = "OpenAI-compatible gateway for OpenAI, Anthropic and Ollama with virtual keys, budgets, rate limits, fallbacks, circuit breakers, caching and cost tracking."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Akib Jafor" }]
+requires-python = ">=3.10"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Framework :: FastAPI",
+  "License :: OSI Approved :: MIT License",
+]
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "httpx>=0.27",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.3",
+  "sqlalchemy[asyncio]>=2.0.30",
+  "aiosqlite>=0.20",
+  "prometheus-client>=0.20",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+postgres = ["asyncpg>=0.29"]
+redis = ["redis>=5.0"]
+tokens = ["tiktoken>=0.7"]
+dev = [
+  "asyncpg>=0.29",
+  "redis>=5.0",
+  "fakeredis>=2.23",
+  "pytest>=8.0",
+  "anyio>=4.4",
+  "ruff>=0.5",
+]
+
+[project.scripts]
+llm-gateway = "llm_gateway.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/AkibUllah/llm-gateway"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+llm_gateway = ["py.typed", "static/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "W", "SIM"]
+ignore = ["B008"]
