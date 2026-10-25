@@ -31,11 +31,11 @@ dependencies = [
 
 [project.optional-dependencies]
 postgres = ["asyncpg>=0.29"]
-redis = ["redis>=5.0"]
+redis = ["redis>=8.1.0"]
 tokens = ["tiktoken>=0.7"]
 dev = [
   "asyncpg>=0.29",
-  "redis>=5.0",
+  "redis>=8.1.0",
   "fakeredis>=2.23",
   "pytest>=8.0",
   "anyio>=4.4",
