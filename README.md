@@ -4,6 +4,8 @@
 An OpenAI-compatible gateway in front of OpenAI, Anthropic and Ollama, with virtual API keys, per-key budgets and rate limits, weighted routing with retries, fallbacks and circuit breakers, response caching, and usage and cost reporting.
 
 [![CI](https://github.com/AkibUllah/llm-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/AkibUllah/llm-gateway/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/AkibUllah/llm-gateway/actions/workflows/codeql.yml/badge.svg)](https://github.com/AkibUllah/llm-gateway/actions/workflows/codeql.yml)
+[![Release](https://img.shields.io/github/v/release/AkibUllah/llm-gateway)](https://github.com/AkibUllah/llm-gateway/releases)
 ![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -18,6 +20,20 @@ An OpenAI-compatible gateway in front of OpenAI, Anthropic and Ollama, with virt
 | Local | `docker compose up` (see Quick Start) |
 
 Everything runs offline: without provider keys, the `demo-*` aliases and every fallback chain end at deterministic fake providers.
+
+## Screenshots
+
+![Usage dashboard](docs/dashboard.png)
+
+*The built-in dashboard at `/dashboard` after a run of `scripts/demo_traffic.py` (spend, requests per alias, keys, provider breaker state).*
+
+![curl session](docs/images/curl-session.png)
+
+*A real curl session against a local gateway on the offline config: a retried call on the flaky fake upstream, the cache hit that follows, a `claude-haiku` request served by its fallback chain, a `model_not_found` error and the resulting usage report.*
+
+![API reference](docs/images/api-reference.png)
+
+*The OpenAI-compatible and admin endpoints in the [live API reference](https://akibullah.github.io/llm-gateway/).*
 
 ## Why this exists
 
@@ -34,8 +50,6 @@ Once more than one team calls LLM APIs, the same problems show up as with paymen
 - Token counting with `tiktoken` when installed, otherwise a script-aware heuristic; provider-reported usage always wins for billing
 - Admin API for keys, usage and cost reports (by key, model, provider or day), alerts, provider health and cache control, plus a small dashboard at `/dashboard`
 - Structured JSON logs with request ids and PII redaction (emails, Bangladeshi and international phone numbers, Luhn-valid card numbers, API keys), Prometheus `/metrics`
-
-![Dashboard](docs/dashboard.png)
 
 ## Architecture
 
@@ -220,7 +234,7 @@ outcomes:
   embeddings -> 200                4
 ```
 
-From `/metrics` and `/admin/usage` after that run: `llmgw_upstream_retries_total{provider="fake-flaky"} 7` (the flaky upstream fails one call in three and every failure was retried successfully), `llmgw_fallbacks_total{alias="claude-haiku"} 8` (Anthropic is not configured offline, so routed `claude-haiku` calls went down the fallback chain; the other 4 were cache hits), 26 cache hits out of 80 requests, and 18 `402`s once `mobile-app` crossed its 50%, 80% and 100% alerts. The screenshot above is the dashboard after this run.
+From `/metrics` and `/admin/usage` after that run: `llmgw_upstream_retries_total{provider="fake-flaky"} 7` (the flaky upstream fails one call in three and every failure was retried successfully), `llmgw_fallbacks_total{alias="claude-haiku"} 8` (Anthropic is not configured offline, so routed `claude-haiku` calls went down the fallback chain; the other 4 were cache hits), 26 cache hits out of 80 requests, and 18 `402`s once `mobile-app` crossed its 50%, 80% and 100% alerts. The dashboard screenshot under [Screenshots](#screenshots) was taken after this run.
 
 ## Project Structure
 
@@ -263,11 +277,11 @@ CI also runs the gateway against real PostgreSQL and Redis service containers an
 
 ## Roadmap
 
-- Alembic migrations (tables are created on startup today)
-- Semantic cache option backed by an embeddings alias and pgvector, behind the same cache protocol
-- Per-key provider credentials (bring-your-own-key) encrypted at rest
-- Latency-aware routing that shifts weight away from slow deployments using the recorded p95
-- OpenAI Responses API and image endpoints
+- [ ] Alembic migrations (tables are created on startup today) (#1)
+- [ ] Semantic cache option backed by an embeddings alias and pgvector, behind the same cache protocol (#2)
+- [ ] Per-key provider credentials (bring-your-own-key) encrypted at rest (#3)
+- [ ] Latency-aware routing that shifts weight away from slow deployments using the recorded p95 (#4)
+- [ ] OpenAI Responses API and image endpoints (#5)
 
 ## License
 
