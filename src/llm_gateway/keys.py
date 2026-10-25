@@ -178,8 +178,8 @@ class KeyService:
         async with self.db.session() as session:
             found = await session.scalar(select(ApiKey).where(ApiKey.key_hash == hash_key(raw_key)))
         if found is None:
-            await self.create(data, raw_key=raw_key)
-            logger.info("created demo key %s...", raw_key[:12])
+            created = await self.create(data, raw_key=raw_key)
+            logger.info("created demo key %s (%s)", created.id, data.name)
 
     async def authenticate(self, raw_key: str | None) -> KeyContext:
         if not raw_key:
