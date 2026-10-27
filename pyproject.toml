@@ -37,7 +37,7 @@ dev = [
   "asyncpg>=0.29",
   "redis>=8.1.0",
   "fakeredis>=2.23",
-  "pytest>=8.0",
+  "pytest>=9.1.1",
   "anyio>=4.4",
   "ruff>=0.5",
 ]
