@@ -38,7 +38,7 @@ dev = [
   "redis>=8.1.0",
   "fakeredis>=2.23",
   "pytest>=9.1.1",
-  "anyio>=4.4",
+  "anyio>=4.15.1",
   "ruff>=0.5",
 ]
 
