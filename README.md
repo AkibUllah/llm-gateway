@@ -44,6 +44,7 @@ Once more than one team calls LLM APIs, the same problems show up as with paymen
 - OpenAI-compatible `POST /v1/chat/completions` (including SSE streaming and `stream_options.include_usage`), `POST /v1/embeddings` and `GET /v1/models`; existing OpenAI SDK clients work by changing `base_url`
 - Provider adapters: OpenAI-compatible HTTP, Anthropic Messages (full request/response translation including tools, images, system prompts and stream events), Ollama native API (NDJSON streaming), and a deterministic `FakeProvider` with configurable latency and failures
 - Model aliases with weighted load balancing, ordered fallback chains, retries with exponential backoff and jitter (`Retry-After` honoured), per-request timeout, and a circuit breaker per provider with half-open probes
+- Optional latency-aware routing: a rolling p95 per deployment scales down the weight of slow deployments (and gives it back once they speed up), with effective weights shown in `/admin/providers`
 - Virtual keys (`sk-gw-...`), stored as SHA-256 hashes: per-key budget (total or monthly), requests-per-minute and tokens-per-minute limits, model allow-list (globs), expiry, revocation
 - Spend tracking from a YAML price table, budget alerts at 50/80/100% (stored, logged, optional webhook), `402 insufficient_quota` once the budget is gone
 - Exact-match response cache keyed on a normalised request hash (whitespace, Unicode forms, optional case folding), memory or Redis, TTL, replayed as SSE for streaming clients
@@ -192,7 +193,17 @@ routing:
   backoff_base_ms: 100
   request_timeout_s: 60
   breaker: { failure_threshold: 5, recovery_s: 30 }
+  latency_aware:
+    enabled: true           # off by default: static weights only
+    window: 100             # samples kept per deployment
+    min_samples: 20         # fresh samples needed before a deployment is judged
+    max_age_s: 300          # older samples expire, so a recovered deployment wins its share back
+    tolerance_ms: 25        # p95 gaps up to this are noise
+    penalty: 1.0            # weight x (fastest p95 / p95) ^ penalty
+    min_weight_ratio: 0.05  # never below 5% of the configured weight
 ```
+
+**Latency-aware routing.** The router records the latency of every successful attempt (time to the full response, or to the first chunk for streams) and every timeout in a rolling window per deployment. When at least two deployments of an alias have `min_samples` fresh samples, each one's weight is multiplied by `fastest p95 / its p95`: with `weight: 3` and a p95 four times slower than its sibling, a deployment drops from 75% to about 43% of the traffic. It is compared against the fastest deployment rather than the median, because with two deployments the median is their midpoint and could never take away more than half the weight. The floor keeps a trickle of traffic flowing to the slow deployment, so its window refills with fresh samples and it recovers its full share once it is fast again. Fallback aliases keep their fixed order. `GET /admin/providers` lists every deployment with `weight`, `effective_weight`, `p95_ms` and `samples`; the samples are recorded even when the feature is off, so you can watch the numbers before turning it on.
 
 A provider whose `api_key_env` or `base_url_env` is unset is skipped at startup (shown as disabled in `/admin/providers`), and its aliases go straight to their fallbacks. Prices live in `config/pricing.yaml` (USD per 1M tokens, globs allowed).
 
@@ -209,7 +220,7 @@ A provider whose `api_key_env` or `base_url_env` is unset is skipped at startup 
 | DELETE | `/admin/keys/{id}` | admin | Revoke |
 | GET | `/admin/usage?group_by=key\|model\|provider\|day&since=&until=&key_id=` | admin | Requests, errors, cache hits, fallbacks, tokens, cost, latency |
 | GET | `/admin/alerts` | admin | Budget threshold alerts |
-| GET | `/admin/providers` | admin | Availability and circuit-breaker state per provider |
+| GET | `/admin/providers` | admin | Availability, circuit-breaker state, and per-deployment weights, effective weights and p95 latency |
 | POST | `/admin/cache/clear` | admin | Drop cached responses |
 | GET | `/health` | – | Database, Redis, available providers and aliases |
 | GET | `/metrics` | – | Prometheus metrics (`llmgw_requests_total`, `llmgw_cost_usd_total`, `llmgw_circuit_state`, ...) |
@@ -244,7 +255,7 @@ llm-gateway/
 │   ├── app.py                # application factory, lifespan wiring, /health, /metrics, /dashboard
 │   ├── gateway.py            # preflight -> cache -> router -> accounting; SSE assembly
 │   ├── api/                  # OpenAI-compatible and admin routes, auth dependencies
-│   ├── routing/              # Router (aliases, weights, retries, fallbacks) and CircuitBreaker
+│   ├── routing/              # Router (aliases, weights, retries, fallbacks), CircuitBreaker, LatencyTracker
 │   ├── providers/            # openai.py, anthropic.py, ollama.py, fake.py, shared HTTP/SSE plumbing
 │   ├── keys.py · usage.py    # virtual keys, budgets, alerts; usage reports
 │   ├── cache.py · ratelimit.py
@@ -263,13 +274,13 @@ llm-gateway/
 ## Testing
 
 ```bash
-make test     # 85 tests, ~16 s, no network, no API keys
+make test     # 95 tests, ~20 s, no network, no API keys
 make lint
 ```
 
 - **Anthropic translation** (23): system/developer extraction, turn merging, tool calls and results, images, sampling parameters, tool schemas and `tool_choice`, response and stop-reason mapping, cache-token usage, the full stream event mapping for text and tool use, error events, and the adapter over `httpx.MockTransport` (headers, SSE parsing, 429 with `Retry-After`, 400 vs 401 classification)
 - **Other adapters**: OpenAI pass-through (unknown fields, forced `include_usage`, SSE `[DONE]`, error and timeout mapping), Ollama request/response/NDJSON stream/embeddings, fake provider determinism, scripting, truncation, tool calls and failure injection
-- **Routing**: weight distribution, exponential backoff timings, fallback order, auth errors skip retries, bad requests fail fast, all-429 becomes 429, breaker open/half-open/recover, timeouts, `Retry-After`, unknown and unavailable models, streaming fallback before the first chunk, fallback cycles
+- **Routing**: weight distribution, exponential backoff timings, fallback order, auth errors skip retries, bad requests fail fast, all-429 becomes 429, breaker open/half-open/recover, timeouts, `Retry-After`, unknown and unavailable models, streaming fallback before the first chunk, fallback cycles; latency-aware weights (nearest-rank p95, window and expiry, penalty, floor, noise tolerance) and an end-to-end run where traffic moves off a slow fake deployment and returns after it recovers
 - **Components**: cache-key normalisation, cacheability, memory LRU/TTL, Redis cache, RPM/TPM limits on memory and Redis, token heuristic, price table, PII redaction patterns, JSON log format, URL normalisation
 - **API end to end** (httpx ASGI transport): auth errors, routing headers, cache hit/bypass, SSE with and without usage, cache replay as SSE, embeddings, OpenAI-style validation errors, key lifecycle with allow-lists and revocation, expiry, budgets with all three alerts and `402`, per-key rate limits, fallback when a provider is unconfigured, usage reports, Anthropic streaming through the whole stack, mid-stream failure reported in-band, Redis-backed deployment
 
@@ -280,7 +291,6 @@ CI also runs the gateway against real PostgreSQL and Redis service containers an
 - [ ] Alembic migrations (tables are created on startup today) (#1)
 - [ ] Semantic cache option backed by an embeddings alias and pgvector, behind the same cache protocol (#2)
 - [ ] Per-key provider credentials (bring-your-own-key) encrypted at rest (#3)
-- [ ] Latency-aware routing that shifts weight away from slow deployments using the recorded p95 (#4)
 - [ ] OpenAI Responses API and image endpoints (#5)
 
 ## License

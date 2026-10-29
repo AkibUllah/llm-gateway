@@ -79,6 +79,12 @@ routing:
   breaker:
     failure_threshold: 5  # consecutive failures before a provider is skipped
     recovery_s: 30        # then one probe request is let through
+  latency_aware:
+    enabled: false        # true: scale weights by fastest p95 / p95 (see README)
+    window: 100
+    min_samples: 20
+    max_age_s: 300
+    tolerance_ms: 25
 
 cache:
   enabled: true
