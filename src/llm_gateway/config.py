@@ -124,12 +124,33 @@ class BreakerConfig(BaseModel):
     recovery_s: float = Field(default=30.0, gt=0)
 
 
+class LatencyAwareConfig(BaseModel):
+    enabled: bool = False
+    window: int = Field(default=100, ge=1, description="Samples kept per deployment")
+    min_samples: int = Field(default=20, ge=1, description="Fresh samples before p95 counts")
+    max_age_s: float = Field(default=300.0, gt=0, description="Samples older than this expire")
+    penalty: float = Field(default=1.0, gt=0, description="Exponent on fastest p95 / p95")
+    tolerance_ms: float = Field(
+        default=25.0, ge=0, description="p95 gaps up to this are treated as noise"
+    )
+    min_weight_ratio: float = Field(
+        default=0.05, gt=0, le=1, description="Floor as a share of the configured weight"
+    )
+
+    @model_validator(mode="after")
+    def _window_holds_min_samples(self) -> LatencyAwareConfig:
+        if self.min_samples > self.window:
+            raise ValueError("latency_aware.min_samples cannot exceed latency_aware.window")
+        return self
+
+
 class RoutingConfig(BaseModel):
     max_retries: int = Field(default=2, ge=0, le=10)
     backoff_base_ms: int = Field(default=100, ge=0)
     backoff_max_ms: int = Field(default=2000, ge=0)
     request_timeout_s: float = Field(default=60.0, gt=0)
     breaker: BreakerConfig = Field(default_factory=BreakerConfig)
+    latency_aware: LatencyAwareConfig = Field(default_factory=LatencyAwareConfig)
 
 
 class CacheConfig(BaseModel):

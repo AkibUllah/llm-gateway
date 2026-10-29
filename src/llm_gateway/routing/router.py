@@ -14,6 +14,7 @@ from llm_gateway.config import GatewayConfig
 from llm_gateway.errors import GatewayError, ProviderError
 from llm_gateway.providers.base import Provider
 from llm_gateway.routing.breaker import CircuitBreaker
+from llm_gateway.routing.latency import LatencyTracker
 from llm_gateway.schemas import (
     ChatCompletionChunk,
     ChatCompletionRequest,
@@ -95,6 +96,7 @@ class Router:
             name: CircuitBreaker(breaker.failure_threshold, breaker.recovery_s, clock)
             for name in providers
         }
+        self.latency = LatencyTracker(config.routing.latency_aware, clock)
 
     # -- resolution -------------------------------------------------------------------------
 
@@ -133,11 +135,18 @@ class Router:
         visit(alias, weighted=True)
         return ordered
 
+    def _effective_weights(self, group: list[Deployment]) -> dict[str, float]:
+        if not self.config.routing.latency_aware.enabled:
+            return {d.label: d.weight for d in group}
+        weights = self.latency.weights([(d.label, d.weight) for d in group])
+        return {label: w.effective_weight for label, w in weights.items()}
+
     def _weighted_order(self, group: list[Deployment]) -> list[Deployment]:
+        weights = self._effective_weights(group)
         remaining = list(group)
         ordered: list[Deployment] = []
         while remaining:
-            pick = self.rng.choices(remaining, weights=[d.weight for d in remaining])[0]
+            pick = self.rng.choices(remaining, weights=[weights[d.label] for d in remaining])[0]
             ordered.append(pick)
             remaining.remove(pick)
         return ordered
@@ -190,13 +199,16 @@ class Router:
                 try:
                     result = await asyncio.wait_for(call(deployment), timeout=timeout)
                 except asyncio.TimeoutError:
+                    self.latency.record(deployment.label, timeout * 1000)
                     error = ProviderError(deployment.provider.name, f"no response in {timeout}s")
                 except ProviderError as exc:
                     error = exc
                 else:
                     breaker.record_success()
                     self._breaker_metric(deployment)
-                    info.attempts.append(Attempt(deployment.label, duration_ms=_ms_since(started)))
+                    duration_ms = _ms_since(started)
+                    self.latency.record(deployment.label, duration_ms)
+                    info.attempts.append(Attempt(deployment.label, duration_ms=duration_ms))
                     info.deployment = deployment
                     if info.fallback_used and self.metrics:
                         self.metrics.fallbacks.labels(alias=alias).inc()
@@ -294,12 +306,36 @@ class Router:
         (first, rest), info = await self._execute(request.model, open_stream)
         return StreamHandle(info=info, first=first, rest=rest)
 
+    def routing_weights(self) -> dict[str, list[dict[str, object]]]:
+        """Configured and effective weight, p95 and sample count per deployment, by provider."""
+        by_provider: dict[str, list[dict[str, object]]] = {}
+        for alias in self.config.models:
+            group = self._deployments(alias)
+            if not group:
+                continue
+            effective = self._effective_weights(group)
+            stats = self.latency.weights([(d.label, d.weight) for d in group])
+            for d in group:
+                by_provider.setdefault(d.provider.name, []).append(
+                    {
+                        "alias": alias,
+                        "model": d.model,
+                        "weight": d.weight,
+                        "effective_weight": effective[d.label],
+                        "p95_ms": stats[d.label].p95_ms,
+                        "samples": stats[d.label].samples,
+                    }
+                )
+        return by_provider
+
     def health(self) -> list[dict[str, object]]:
+        deployments = self.routing_weights()
         rows: list[dict[str, object]] = []
         for name, cfg in self.config.providers.items():
             row: dict[str, object] = {"name": name, "type": cfg.type}
             if name in self.providers:
                 row.update({"available": True, **self.breakers[name].snapshot()})
+                row["deployments"] = deployments.get(name, [])
             else:
                 row.update({"available": False, "reason": self.unavailable.get(name)})
             rows.append(row)
