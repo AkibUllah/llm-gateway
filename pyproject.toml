@@ -32,7 +32,7 @@ dependencies = [
 [project.optional-dependencies]
 postgres = ["asyncpg>=0.29"]
 redis = ["redis>=8.1.0"]
-tokens = ["tiktoken>=0.7"]
+tokens = ["tiktoken>=0.14.0"]
 dev = [
   "asyncpg>=0.29",
   "redis>=8.1.0",
