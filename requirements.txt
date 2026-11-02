@@ -8,5 +8,5 @@ sqlalchemy[asyncio]>=2.0.30
 aiosqlite>=0.20
 asyncpg>=0.29
 redis>=8.1.0
-prometheus-client>=0.20
+prometheus-client>=0.26.0
 pyyaml>=6.0.3
